@@ -179,24 +179,48 @@ def scan_conversation_summaries(app_dirs: list[Path]) -> tuple[set[str], set[str
     db_path = app_dir / "conversation_summaries.db"
     if not db_path.is_file():
       continue
+    conn = None
     try:
-      conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+      # Read-only URI with 2-second timeout prevents write transactions, file locking, or hangs
+      conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
       cursor = conn.cursor()
-      cursor.execute("SELECT conversation_id, last_modified_time, last_user_input_time FROM conversation_summaries")
+      cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_summaries'")
+      if not cursor.fetchone():
+        continue
+
+      # Introspect available columns to maintain backward and forward compatibility
+      cursor.execute("PRAGMA table_info(conversation_summaries)")
+      cols = {row[1] for row in cursor.fetchall()}
+      if "conversation_id" not in cols:
+        continue
+
+      select_cols = ["conversation_id"]
+      if "last_modified_time" in cols:
+        select_cols.append("last_modified_time")
+      if "last_user_input_time" in cols:
+        select_cols.append("last_user_input_time")
+
+      cursor.execute(f"SELECT {', '.join(select_cols)} FROM conversation_summaries")
       for row in cursor.fetchall():
         cid = str(row[0] or "").strip()
         if not cid:
           continue
         all_sessions.add(cid)
-        t1 = str(row[1] or "")
-        t2 = str(row[2] or "")
-        if t1.startswith(today) or t2.startswith(today):
-          today_sessions.add(cid)
-      conn.close()
+        for val in row[1:]:
+          if val and str(val).startswith(today):
+            today_sessions.add(cid)
+            break
     except Exception:
       pass
+    finally:
+      if conn is not None:
+        try:
+          conn.close()
+        except Exception:
+          pass
 
   return all_sessions, today_sessions
+
 
 
 def scan_antigravity_transcripts(gemini_path: Path) -> dict[str, Any]:
