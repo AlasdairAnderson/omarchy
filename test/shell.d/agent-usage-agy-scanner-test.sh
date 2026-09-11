@@ -109,3 +109,42 @@ pass "Antigravity collector loads limits list from cache"
 [[ $(jq -r '.limits[0].title + "/" + (.limits[0].percent|tostring)' <<<"$result") == "Gemini (5h)/0.1021" ]] ||
   fail "Antigravity collector preserves limit percent and titles" "$result"
 pass "Antigravity collector preserves limit percent and titles"
+
+# Test multi-interface app discovery (IDE / Desktop / VS Code) and conversation_summaries.db
+MULTI_HOME=$(mktemp -d)
+trap 'rm -rf "$TEST_HOME" "$HISTORY_HOME" "$LIMITS_HOME" "$MULTI_HOME"' EXIT
+
+mkdir -p "$MULTI_HOME/.gemini/antigravity-ide/brain/session-ide-1/.system_generated/logs"
+cat >"$MULTI_HOME/.gemini/antigravity-ide/brain/session-ide-1/.system_generated/logs/transcript.jsonl" <<EOF
+{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"$timestamp","content":"prompt in IDE"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"$timestamp","content":"response","usage":{"input_tokens":50,"output_tokens":25,"cached_content_token_count":0}}
+EOF
+
+# Create a conversation_summaries.db SQLite database in antigravity (Desktop app)
+mkdir -p "$MULTI_HOME/.gemini/antigravity"
+python3 -c "
+import sqlite3
+conn = sqlite3.connect('$MULTI_HOME/.gemini/antigravity/conversation_summaries.db')
+c = conn.cursor()
+c.execute('CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY, last_modified_time datetime, last_user_input_time datetime)')
+c.execute('INSERT INTO conversation_summaries VALUES (?, ?, ?)', ('db-sess-1', '$timestamp', '$timestamp'))
+c.execute('INSERT INTO conversation_summaries VALUES (?, ?, ?)', ('db-sess-2', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z'))
+conn.commit()
+conn.close()
+"
+
+result=$(HOME="$MULTI_HOME" XDG_CACHE_HOME="$MULTI_HOME/.cache" XDG_DATA_HOME="$MULTI_HOME/.local/share" \
+  "$ROOT/bin/omarchy-agent-usage-agy" --force)
+
+[[ $(jq -r '.totalSessions' <<<"$result") == "3" ]] ||
+  fail "Antigravity collector aggregates sessions across multi-interface DBs and transcripts" "$result"
+pass "Antigravity collector aggregates sessions across multi-interface DBs and transcripts"
+
+[[ $(jq -r '.todaySessions' <<<"$result") == "2" ]] ||
+  fail "Antigravity collector identifies today sessions from multi-interface DBs" "$result"
+pass "Antigravity collector identifies today sessions from multi-interface DBs"
+
+[[ $(jq -r '.todayTotalTokens' <<<"$result") == "75" ]] ||
+  fail "Antigravity collector sums tokens from dynamically discovered app roots" "$result"
+pass "Antigravity collector sums tokens from dynamically discovered app roots"
+

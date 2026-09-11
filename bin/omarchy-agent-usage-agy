@@ -147,6 +147,58 @@ def normalize_model_name(raw: Any) -> str:
 # ---------------------------------------------------------------- local scan
 
 
+def find_antigravity_app_dirs(gemini_path: Path) -> list[Path]:
+  """Discover all Antigravity application roots (CLI, Desktop IDE, VS Code, etc.)."""
+  app_dirs: list[Path] = []
+  if not gemini_path.is_dir():
+    return app_dirs
+
+  for item in gemini_path.iterdir():
+    if not item.is_dir():
+      continue
+    name = item.name
+    if "antigravity" in name and not name.endswith("-backup") and not name.endswith("-profile"):
+      app_dirs.append(item)
+
+  if not app_dirs:
+    for default_name in ("antigravity-cli", "antigravity"):
+      candidate = gemini_path / default_name
+      if candidate.is_dir():
+        app_dirs.append(candidate)
+
+  return app_dirs
+
+
+def scan_conversation_summaries(app_dirs: list[Path]) -> tuple[set[str], set[str]]:
+  """Discover recorded session IDs and active sessions from conversation_summaries.db across all interfaces."""
+  today = local_date_string()
+  all_sessions: set[str] = set()
+  today_sessions: set[str] = set()
+
+  for app_dir in app_dirs:
+    db_path = app_dir / "conversation_summaries.db"
+    if not db_path.is_file():
+      continue
+    try:
+      conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+      cursor = conn.cursor()
+      cursor.execute("SELECT conversation_id, last_modified_time, last_user_input_time FROM conversation_summaries")
+      for row in cursor.fetchall():
+        cid = str(row[0] or "").strip()
+        if not cid:
+          continue
+        all_sessions.add(cid)
+        t1 = str(row[1] or "")
+        t2 = str(row[2] or "")
+        if t1.startswith(today) or t2.startswith(today):
+          today_sessions.add(cid)
+      conn.close()
+    except Exception:
+      pass
+
+  return all_sessions, today_sessions
+
+
 def scan_antigravity_transcripts(gemini_path: Path) -> dict[str, Any]:
   today = local_date_string()
   recent_dates = recent_date_strings()
@@ -162,12 +214,23 @@ def scan_antigravity_transcripts(gemini_path: Path) -> dict[str, Any]:
   today_prompt_count = 0
   today_token_total = 0
 
-  # Search brain directories under antigravity-cli, antigravity, or root
-  candidate_dirs = [
-    gemini_path / "antigravity-cli" / "brain",
-    gemini_path / "antigravity" / "brain",
-    gemini_path / "brain",
-  ]
+  # Discover all Antigravity application roots (CLI, Desktop IDE, VS Code, etc.)
+  app_dirs = find_antigravity_app_dirs(gemini_path)
+
+  # Collect session IDs from conversation_summaries.db across all interfaces
+  db_sessions, db_today_sessions = scan_conversation_summaries(app_dirs)
+  sessions.update(db_sessions)
+  today_sessions.update(db_today_sessions)
+
+  # Search brain directories across all discovered app directories
+  candidate_dirs: list[Path] = []
+  for a_dir in app_dirs:
+    b_dir = a_dir / "brain"
+    if b_dir.is_dir() and b_dir not in candidate_dirs:
+      candidate_dirs.append(b_dir)
+
+  if (gemini_path / "brain").is_dir() and (gemini_path / "brain") not in candidate_dirs:
+    candidate_dirs.append(gemini_path / "brain")
 
   transcript_files: list[Path] = []
   for b_dir in candidate_dirs:
@@ -288,11 +351,15 @@ def scan_antigravity_history(gemini_path: Path) -> tuple[int, int]:
   today_prompts = 0
   today = local_date_string()
 
-  history_files = [
-    gemini_path / "antigravity-cli" / "history.jsonl",
-    gemini_path / "antigravity" / "history.jsonl",
-    gemini_path / "history.jsonl",
-  ]
+  app_dirs = find_antigravity_app_dirs(gemini_path)
+  history_files: list[Path] = []
+  for a_dir in app_dirs:
+    h_path = a_dir / "history.jsonl"
+    if h_path.is_file() and h_path not in history_files:
+      history_files.append(h_path)
+
+  if (gemini_path / "history.jsonl").is_file() and (gemini_path / "history.jsonl") not in history_files:
+    history_files.append(gemini_path / "history.jsonl")
 
   for h_path in history_files:
     if not h_path.is_file():
