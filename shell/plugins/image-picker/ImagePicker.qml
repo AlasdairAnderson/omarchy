@@ -774,6 +774,7 @@ Item {
                   required property int index
                   required property var modelData
                   readonly property bool active: root.currentStepIndex === index
+                  readonly property bool hovered: mouseArea.containsMouse
 
                   width: 104
                   height: 34
@@ -785,9 +786,9 @@ Item {
                     preferredRendererType: Shape.GeometryRenderer
 
                     ShapePath {
-                      fillColor: btnItem.active ? root.selectedBorder : Util.alpha(root.dimColor, 0.72)
-                      strokeColor: btnItem.active ? root.selectedBorder : Util.alpha(root.unselectedBorder, 0.5)
-                      strokeWidth: btnItem.active ? 2 : 1
+                      fillColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.22) : Util.alpha(root.dimColor, 0.72))
+                      strokeColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.7) : Util.alpha(root.unselectedBorder, 0.5))
+                      strokeWidth: btnItem.active ? 2 : (btnItem.hovered ? 1.5 : 1)
                       startX: btnItem.btnSkew; startY: 0
                       PathLine { x: btnItem.width; y: 0 }
                       PathLine { x: btnItem.width - btnItem.btnSkew; y: btnItem.height }
@@ -802,7 +803,7 @@ Item {
 
                     Text {
                       text: modelData.icon
-                      color: btnItem.active ? root.dimColor : root.foreground
+                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
                       font.pixelSize: 12
                       font.weight: Font.Bold
                       anchors.verticalCenter: parent.verticalCenter
@@ -810,7 +811,7 @@ Item {
 
                     Text {
                       text: modelData.label
-                      color: btnItem.active ? root.dimColor : root.foreground
+                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
                       font.pixelSize: 11
                       font.weight: btnItem.active ? Font.Bold : Font.Normal
                       anchors.verticalCenter: parent.verticalCenter
@@ -818,15 +819,17 @@ Item {
 
                     Text {
                       text: "(" + modelData.sub + ")"
-                      color: btnItem.active ? root.dimColor : root.foreground
-                      opacity: btnItem.active ? 0.9 : 0.65
+                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
+                      opacity: btnItem.active ? 0.9 : (btnItem.hovered ? 0.85 : 0.65)
                       font.pixelSize: 9
                       anchors.verticalCenter: parent.verticalCenter
                     }
                   }
 
                   MouseArea {
+                    id: mouseArea
                     anchors.fill: parent
+                    hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.setStepIndex(index)
                   }

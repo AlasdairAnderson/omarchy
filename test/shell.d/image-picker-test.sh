@@ -57,7 +57,8 @@ assert(
     imagePickerQml.includes('cycleStep(1)') &&
     imagePickerQml.includes('background-alignments.json') &&
     imagePickerQml.includes('id: alignmentBar') &&
+    imagePickerQml.includes('hoverEnabled: true') &&
     /showAlignment: alignable && !showLabels && !filterable/.test(imagePickerQml),
-  'image picker provides stepped background alignment bar with persistence and keyboard cycling'
+  'image picker provides stepped background alignment bar with persistence, hover feedback, and keyboard cycling'
 )
 JS
