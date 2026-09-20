@@ -60,7 +60,7 @@ Item {
 
   property bool alignable: true
   readonly property bool showAlignment: alignable && !showLabels && !filterable && imagesLoaded && imageArray.length > 0
-  property int alignmentMenuHeight: 85
+  property int alignmentMenuHeight: 80
   property int bottomChromeHeight: (showLabels ? (filterable ? 104 : 74) : (filterable ? 60 : 30)) + (showAlignment ? alignmentMenuHeight : 0)
 
   FileView {
@@ -732,14 +732,17 @@ Item {
         Item {
           id: alignmentBar
           visible: root.showAlignment
-          anchors.top: (root.showLabels && selectedLabel.text) ? (root.filterable && root.filterText ? filterLabel.bottom : selectedLabel.bottom) : carousel.bottom
-          anchors.topMargin: Style.space(12)
-          anchors.horizontalCenter: carousel.horizontalCenter
-          width: 590
-          height: 70
+          anchors.top: carousel.top
+          anchors.topMargin: root.expandedHeight
+          x: Math.round(carousel.x + carousel.previewX - originX)
+          width: root.expandedWidth
+          height: 80
           z: 200
 
-          readonly property real barSkew: 12
+          readonly property real skAbs: Math.abs(root.skewOffset)
+          readonly property real topWidth: root.expandedWidth - skAbs
+          readonly property real deckSkew: (skAbs / root.expandedHeight) * height
+          readonly property real originX: Math.ceil(deckSkew) + 2
 
           Shape {
             anchors.fill: parent
@@ -747,104 +750,105 @@ Item {
             preferredRendererType: Shape.CurveRenderer
 
             ShapePath {
-              fillColor: Qt.rgba(root.dimColor.r, root.dimColor.g, root.dimColor.b, 0.88)
-              strokeColor: Util.alpha(root.unselectedBorder, 0.35)
-              strokeWidth: 1
-              startX: alignmentBar.barSkew; startY: 0
-              PathLine { x: alignmentBar.width; y: 0 }
-              PathLine { x: alignmentBar.width - alignmentBar.barSkew; y: alignmentBar.height }
-              PathLine { x: 0; y: alignmentBar.height }
-              PathLine { x: alignmentBar.barSkew; y: 0 }
+              fillColor: Qt.rgba(root.dimColor.r, root.dimColor.g, root.dimColor.b, 0.94)
+              strokeColor: root.selectedBorder
+              strokeWidth: 3
+              startX: alignmentBar.originX; startY: 0
+              PathLine { x: alignmentBar.originX + alignmentBar.topWidth; y: 0 }
+              PathLine { x: alignmentBar.originX + alignmentBar.topWidth - alignmentBar.deckSkew; y: alignmentBar.height }
+              PathLine { x: alignmentBar.originX - alignmentBar.deckSkew; y: alignmentBar.height }
+              PathLine { x: alignmentBar.originX; y: 0 }
             }
           }
 
-          Column {
-            anchors.centerIn: parent
-            spacing: 5
+          Row {
+            id: buttonsRow
+            anchors.top: parent.top
+            anchors.topMargin: 12
+            x: Math.round(alignmentBar.originX + (alignmentBar.topWidth - width) / 2 - (alignmentBar.deckSkew * 0.35))
+            spacing: 8
 
-            Row {
-              anchors.horizontalCenter: parent.horizontalCenter
-              spacing: 6
+            Repeater {
+              model: root.alignmentSteps
 
-              Repeater {
-                model: root.alignmentSteps
+              delegate: Item {
+                id: btnItem
+                required property int index
+                required property var modelData
+                readonly property bool active: root.currentStepIndex === index
+                readonly property bool hovered: mouseArea.containsMouse
 
-                delegate: Item {
-                  id: btnItem
-                  required property int index
-                  required property var modelData
-                  readonly property bool active: root.currentStepIndex === index
-                  readonly property bool hovered: mouseArea.containsMouse
+                width: 130
+                height: 34
+                readonly property real btnSkew: 7
 
-                  width: 104
-                  height: 34
-                  readonly property real btnSkew: 7
+                Shape {
+                  anchors.fill: parent
+                  antialiasing: true
+                  preferredRendererType: Shape.GeometryRenderer
 
-                  Shape {
-                    anchors.fill: parent
-                    antialiasing: true
-                    preferredRendererType: Shape.GeometryRenderer
+                  ShapePath {
+                    fillColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.22) : Util.alpha(root.dimColor, 0.72))
+                    strokeColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.7) : Util.alpha(root.unselectedBorder, 0.5))
+                    strokeWidth: btnItem.active ? 2 : (btnItem.hovered ? 1.5 : 1)
+                    startX: btnItem.btnSkew; startY: 0
+                    PathLine { x: btnItem.width; y: 0 }
+                    PathLine { x: btnItem.width - btnItem.btnSkew; y: btnItem.height }
+                    PathLine { x: 0; y: btnItem.height }
+                    PathLine { x: btnItem.btnSkew; y: 0 }
+                  }
+                }
 
-                    ShapePath {
-                      fillColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.22) : Util.alpha(root.dimColor, 0.72))
-                      strokeColor: btnItem.active ? root.selectedBorder : (btnItem.hovered ? Util.alpha(root.selectedBorder, 0.7) : Util.alpha(root.unselectedBorder, 0.5))
-                      strokeWidth: btnItem.active ? 2 : (btnItem.hovered ? 1.5 : 1)
-                      startX: btnItem.btnSkew; startY: 0
-                      PathLine { x: btnItem.width; y: 0 }
-                      PathLine { x: btnItem.width - btnItem.btnSkew; y: btnItem.height }
-                      PathLine { x: 0; y: btnItem.height }
-                      PathLine { x: btnItem.btnSkew; y: 0 }
-                    }
+                Row {
+                  anchors.centerIn: parent
+                  spacing: 4
+
+                  Text {
+                    text: modelData.icon
+                    font.family: "Symbols Nerd Font Mono"
+                    color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
+                    font.pixelSize: 12
+                    font.weight: Font.Bold
+                    anchors.verticalCenter: parent.verticalCenter
                   }
 
-                  Row {
-                    anchors.centerIn: parent
-                    spacing: 4
-
-                    Text {
-                      text: modelData.icon
-                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
-                      font.pixelSize: 12
-                      font.weight: Font.Bold
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Text {
-                      text: modelData.label
-                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
-                      font.pixelSize: 11
-                      font.weight: btnItem.active ? Font.Bold : Font.Normal
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Text {
-                      text: "(" + modelData.sub + ")"
-                      color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
-                      opacity: btnItem.active ? 0.9 : (btnItem.hovered ? 0.85 : 0.65)
-                      font.pixelSize: 9
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
+                  Text {
+                    text: modelData.label
+                    color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
+                    font.pixelSize: 11
+                    font.weight: (btnItem.active || btnItem.hovered) ? Font.Bold : Font.Normal
+                    anchors.verticalCenter: parent.verticalCenter
                   }
 
-                  MouseArea {
-                    id: mouseArea
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.setStepIndex(index)
+                  Text {
+                    text: "(" + modelData.sub + ")"
+                    color: btnItem.active ? root.dimColor : (btnItem.hovered ? root.selectedBorder : root.foreground)
+                    opacity: btnItem.active ? 0.9 : (btnItem.hovered ? 0.85 : 0.65)
+                    font.pixelSize: 9
+                    anchors.verticalCenter: parent.verticalCenter
                   }
+                }
+
+                MouseArea {
+                  id: mouseArea
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.setStepIndex(index)
                 }
               }
             }
+          }
 
-            Text {
-              anchors.horizontalCenter: parent.horizontalCenter
-              text: "Use ↑ / ↓ to step position • Enter to apply"
-              color: root.foreground
-              opacity: 0.75
-              font.pixelSize: 11
-              font.weight: Font.Medium
-            }
+          Text {
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 8
+            x: Math.round(alignmentBar.originX + (alignmentBar.topWidth - width) / 2 - alignmentBar.deckSkew)
+            text: "Use ↑ / ↓ to step position • Enter to apply"
+            color: root.foreground
+            opacity: 0.75
+            font.pixelSize: 11
+            font.weight: Font.Medium
           }
         }
     }
