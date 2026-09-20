@@ -1,0 +1,151 @@
+#!/bin/bash
+
+# omarchy:summary=Configure and control automatic background slideshow rotation
+# omarchy:group=theme
+# omarchy:name=bg-slideshow
+# omarchy:args=[status|on|off|toggle|interval|next] [value]
+# omarchy:examples=omarchy-theme-bg-slideshow toggle; omarchy-theme-bg-slideshow on 15m; omarchy-theme-bg-slideshow status
+
+CONFIG_FILE="$HOME/.config/omarchy/background-slideshow.json"
+
+parse_interval() {
+  local input="$1"
+  if [[ -z $input ]]; then
+    echo 900
+    return
+  fi
+  if [[ $input =~ ^([0-9]+)m$ ]]; then
+    echo $(( BASH_REMATCH[1] * 60 ))
+  elif [[ $input =~ ^([0-9]+)h$ ]]; then
+    echo $(( BASH_REMATCH[1] * 3600 ))
+  elif [[ $input =~ ^([0-9]+)s?$ ]]; then
+    echo $(( BASH_REMATCH[1] ))
+  else
+    echo 900
+  fi
+}
+
+format_interval() {
+  local seconds="$1"
+  if (( seconds >= 3600 && seconds % 3600 == 0 )); then
+    echo "$(( seconds / 3600 ))h"
+  elif (( seconds >= 60 && seconds % 60 == 0 )); then
+    echo "$(( seconds / 60 ))m"
+  else
+    echo "${seconds}s"
+  fi
+}
+
+get_config() {
+  local key="$1"
+  local default="$2"
+  if [[ -f $CONFIG_FILE ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      local val
+      val=$(jq -r ".$key // empty" "$CONFIG_FILE" 2>/dev/null)
+      if [[ -n $val && $val != "null" ]]; then
+        echo "$val"
+        return
+      fi
+    else
+      local val
+      val=$(grep -Po "\"$key\":\\s*\\K[^,}\"]+" "$CONFIG_FILE" 2>/dev/null)
+      if [[ -n $val ]]; then
+        echo "$val"
+        return
+      fi
+    fi
+  fi
+  echo "$default"
+}
+
+save_config() {
+  local enabled="$1"
+  local interval="$2"
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  cat <<JSON > "$CONFIG_FILE"
+{
+  "enabled": $enabled,
+  "interval": $interval
+}
+JSON
+}
+
+ACTION="${1:-status}"
+
+case "$ACTION" in
+  status)
+    ENABLED=$(get_config "enabled" "false")
+    INTERVAL=$(get_config "interval" "900")
+    FORMATTED=$(format_interval "$INTERVAL")
+    if [[ $ENABLED == "true" ]]; then
+      echo "Background slideshow is ENABLED (interval: $FORMATTED)"
+    else
+      echo "Background slideshow is DISABLED (interval: $FORMATTED)"
+    fi
+    ;;
+  on|enable)
+    INTERVAL_ARG="${2:-}"
+    CURRENT_INTERVAL=$(get_config "interval" "900")
+    if [[ -n $INTERVAL_ARG ]]; then
+      INTERVAL=$(parse_interval "$INTERVAL_ARG")
+    else
+      INTERVAL=$CURRENT_INTERVAL
+    fi
+    save_config "true" "$INTERVAL"
+    FORMATTED=$(format_interval "$INTERVAL")
+    if command -v omarchy-notification-send >/dev/null 2>&1; then
+      omarchy-notification-send "Background Slideshow" "Enabled: cycling every $FORMATTED" -t 2500
+    fi
+    echo "Background slideshow enabled (interval: $FORMATTED)"
+    ;;
+  off|disable)
+    INTERVAL=$(get_config "interval" "900")
+    save_config "false" "$INTERVAL"
+    if command -v omarchy-notification-send >/dev/null 2>&1; then
+      omarchy-notification-send "Background Slideshow" "Disabled" -t 2000
+    fi
+    echo "Background slideshow disabled"
+    ;;
+  toggle)
+    ENABLED=$(get_config "enabled" "false")
+    INTERVAL=$(get_config "interval" "900")
+    if [[ $ENABLED == "true" ]]; then
+      save_config "false" "$INTERVAL"
+      if command -v omarchy-notification-send >/dev/null 2>&1; then
+        omarchy-notification-send "Background Slideshow" "Disabled" -t 2000
+      fi
+      echo "Background slideshow disabled"
+    else
+      save_config "true" "$INTERVAL"
+      FORMATTED=$(format_interval "$INTERVAL")
+      if command -v omarchy-notification-send >/dev/null 2>&1; then
+        omarchy-notification-send "Background Slideshow" "Enabled: cycling every $FORMATTED" -t 2500
+      fi
+      echo "Background slideshow enabled (interval: $FORMATTED)"
+    fi
+    ;;
+  interval|set-interval)
+    if [[ -z ${2:-} ]]; then
+      echo "Usage: omarchy-theme-bg-slideshow interval <duration> (e.g. 5m, 15m, 1h, 600s)" >&2
+      exit 1
+    fi
+    INTERVAL=$(parse_interval "$2")
+    ENABLED=$(get_config "enabled" "false")
+    save_config "$ENABLED" "$INTERVAL"
+    FORMATTED=$(format_interval "$INTERVAL")
+    if command -v omarchy-notification-send >/dev/null 2>&1; then
+      omarchy-notification-send "Background Slideshow" "Interval set to $FORMATTED" -t 2000
+    fi
+    echo "Interval set to $FORMATTED (enabled: $ENABLED)"
+    ;;
+  next|cycle)
+    if command -v omarchy-theme-bg-next >/dev/null 2>&1; then
+      omarchy-theme-bg-next "${@:2}"
+    fi
+    ;;
+  *)
+    echo "Usage: omarchy-theme-bg-slideshow [status|on|off|toggle|interval <duration>|next]" >&2
+    exit 1
+    ;;
+esac

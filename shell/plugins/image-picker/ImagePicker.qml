@@ -56,11 +56,108 @@ Item {
   ]
   property int currentStepIndex: 2
   readonly property real currentPositionRatio: (currentStepIndex >= 0 && currentStepIndex < alignmentSteps.length) ? alignmentSteps[currentStepIndex].ratio : 0.5
-  readonly property string currentAlignmentValue: (currentStepIndex >= 0 && currentStepIndex < alignmentSteps.length) ? alignmentSteps[currentStepIndex].val : "center"
+  property string activeBottomTab: "alignment"
+
+  readonly property var intervalSteps: [
+    { val: "off", seconds: 0, label: "Off", sub: "Disabled", icon: "󰅖" },
+    { val: "1m", seconds: 60, label: "1m", sub: "Test", icon: "󱎫" },
+    { val: "5m", seconds: 300, label: "5m", sub: "Fast", icon: "󱎫" },
+    { val: "15m", seconds: 900, label: "15m", sub: "Default", icon: "󱎫" },
+    { val: "30m", seconds: 1800, label: "30m", sub: "Steady", icon: "󱎫" },
+    { val: "1h", seconds: 3600, label: "1h", sub: "Slow", icon: "󱎫" }
+  ]
+  readonly property string slideshowPath: configDir + "/background-slideshow.json"
+  property bool slideshowEnabled: false
+  property int slideshowInterval: 900
+  property int currentIntervalIndex: 0
+  property bool slideshowDirty: false
+
+  FileView {
+    id: slideshowFile
+    path: root.slideshowPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadSlideshowConfig()
+    onLoadFailed: function(error) { root.slideshowEnabled = false; root.currentIntervalIndex = 0 }
+    onFileChanged: reload()
+  }
+
+  function formatInterval(seconds) {
+    if (!seconds || seconds <= 0) return "Off"
+    if (seconds >= 3600 && seconds % 3600 === 0) return (seconds / 3600) + "h"
+    if (seconds >= 60 && seconds % 60 === 0) return (seconds / 60) + "m"
+    return seconds + "s"
+  }
+
+  function closestIntervalIndex(enabled, seconds) {
+    if (!enabled || seconds <= 0) return 0
+    var closest = 3
+    var minDiff = 999999
+    for (var i = 1; i < intervalSteps.length; i++) {
+      var diff = Math.abs(intervalSteps[i].seconds - seconds)
+      if (diff < minDiff) {
+        minDiff = diff
+        closest = i
+      }
+    }
+    return closest
+  }
+
+  function loadSlideshowConfig() {
+    var raw = slideshowFile.text() || ""
+    if (!raw.trim()) {
+      slideshowEnabled = false
+      currentIntervalIndex = 0
+      return
+    }
+    try {
+      var parsed = JSON.parse(raw)
+      slideshowEnabled = !!(parsed && parsed.enabled)
+      if (parsed && typeof parsed.interval === "number" && parsed.interval > 0) {
+        slideshowInterval = Math.max(10, parsed.interval)
+      }
+      currentIntervalIndex = closestIntervalIndex(slideshowEnabled, slideshowInterval)
+    } catch (e) {
+      slideshowEnabled = false
+      currentIntervalIndex = 0
+    }
+  }
+
+  function setIntervalIndex(idx) {
+    if (idx < 0 || idx >= intervalSteps.length) return
+    currentIntervalIndex = idx
+    var item = intervalSteps[idx]
+    if (item.seconds <= 0) {
+      slideshowEnabled = false
+    } else {
+      slideshowEnabled = true
+      slideshowInterval = item.seconds
+    }
+    slideshowDirty = true
+    saveSlideshowConfig()
+  }
+
+  function cycleInterval(direction) {
+    var count = intervalSteps.length
+    var nextIdx = (currentIntervalIndex + direction + count) % count
+    setIntervalIndex(nextIdx)
+  }
+
+  function saveSlideshowConfig() {
+    var enabledStr = slideshowEnabled ? "true" : "false"
+    var cmd = "mkdir -p " + Util.shellQuote(root.configDir) + "; " +
+      "printf '{\\n  \"enabled\": %s,\\n  \"interval\": %d\\n}\\n' " + enabledStr + " " + root.slideshowInterval + " > " + Util.shellQuote(root.slideshowPath)
+    saveSlideshowProc.command = ["bash", "-c", cmd]
+    saveSlideshowProc.running = true
+  }
+
+  Process {
+    id: saveSlideshowProc
+  }
 
   property bool alignable: true
   readonly property bool showAlignment: alignable && !showLabels && !filterable && imagesLoaded && imageArray.length > 0
-  property int alignmentMenuHeight: 80
+  property int alignmentMenuHeight: 106
   property int bottomChromeHeight: (showLabels ? (filterable ? 104 : 74) : (filterable ? 60 : 30)) + (showAlignment ? alignmentMenuHeight : 0)
 
   FileView {
@@ -545,17 +642,39 @@ Item {
             } else if (root.filterable && Util.editsFilter(event, root.filterText)) {
               root.updateFilter(Util.editedFilter(event, root.filterText))
               event.accepted = true
-            } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab) {
+            } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+              if (root.showAlignment) {
+                root.activeBottomTab = (root.activeBottomTab === "alignment" ? "slideshow" : "alignment")
+                event.accepted = true
+              } else {
+                root.selectAdjacent(event.key === Qt.Key_Tab ? 1 : -1)
+                event.accepted = true
+              }
+            } else if (event.key === Qt.Key_Left) {
               root.selectAdjacent(-1)
               event.accepted = true
-            } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab) {
+            } else if (event.key === Qt.Key_Right) {
               root.selectAdjacent(1)
               event.accepted = true
             } else if (root.showAlignment && event.key === Qt.Key_Up) {
-              root.cycleStep(-1)
+              if (root.activeBottomTab === "alignment") {
+                root.cycleStep(-1)
+              } else {
+                root.cycleInterval(-1)
+              }
               event.accepted = true
             } else if (root.showAlignment && event.key === Qt.Key_Down) {
-              root.cycleStep(1)
+              if (root.activeBottomTab === "alignment") {
+                root.cycleStep(1)
+              } else {
+                root.cycleInterval(1)
+              }
+              event.accepted = true
+            } else if (!root.filterable && (event.key === Qt.Key_S || event.text === "s" || event.text === "S")) {
+              root.activeBottomTab = "slideshow"
+              event.accepted = true
+            } else if (!root.filterable && (event.key === Qt.Key_A || event.text === "a" || event.text === "A")) {
+              root.activeBottomTab = "alignment"
               event.accepted = true
             } else if (root.filterable && event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
               root.updateFilter(root.filterText + event.text)
@@ -736,7 +855,7 @@ Item {
           anchors.topMargin: root.expandedHeight
           x: Math.round(carousel.x + carousel.previewX - originX)
           width: root.expandedWidth
-          height: 80
+          height: 106
           z: 200
 
           readonly property real skAbs: Math.abs(root.skewOffset)
@@ -761,25 +880,144 @@ Item {
             }
           }
 
+          // Left-aligned mode tabs
+          Row {
+            id: modeTabs
+            anchors.top: parent.top
+            anchors.topMargin: 10
+            x: alignmentBar.originX + 12
+            spacing: 8
+
+            // Tab 1: Crop / Align
+            Item {
+              id: alignTab
+              width: 125
+              height: 22
+              readonly property bool active: root.activeBottomTab === "alignment"
+              readonly property bool hovered: alignTabMouse.containsMouse
+              readonly property real skew: 5
+
+              Shape {
+                anchors.fill: parent
+                antialiasing: true
+                preferredRendererType: Shape.GeometryRenderer
+                ShapePath {
+                  fillColor: alignTab.active ? Util.alpha(root.selectedBorder, 0.28) : (alignTab.hovered ? Util.alpha(root.unselectedBorder, 0.2) : "transparent")
+                  strokeColor: alignTab.active ? root.selectedBorder : Util.alpha(root.unselectedBorder, 0.4)
+                  strokeWidth: alignTab.active ? 1.5 : 1
+                  startX: alignTab.skew; startY: 0
+                  PathLine { x: alignTab.width; y: 0 }
+                  PathLine { x: alignTab.width - alignTab.skew; y: alignTab.height }
+                  PathLine { x: 0; y: alignTab.height }
+                  PathLine { x: alignTab.skew; y: 0 }
+                }
+              }
+
+              Row {
+                anchors.centerIn: parent
+                spacing: 5
+                Text {
+                  text: "↔"
+                  color: alignTab.active ? root.selectedBorder : root.foreground
+                  font.pixelSize: 11
+                  font.weight: Font.Bold
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                  text: "Crop / Align"
+                  color: alignTab.active ? root.selectedBorder : root.foreground
+                  font.pixelSize: 10
+                  font.weight: alignTab.active ? Font.Bold : Font.Normal
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              MouseArea {
+                id: alignTabMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.activeBottomTab = "alignment"
+              }
+            }
+
+            // Tab 2: Slideshow
+            Item {
+              id: slideTab
+              width: 165
+              height: 22
+              readonly property bool active: root.activeBottomTab === "slideshow"
+              readonly property bool hovered: slideTabMouse.containsMouse
+              readonly property real skew: 5
+
+              Shape {
+                anchors.fill: parent
+                antialiasing: true
+                preferredRendererType: Shape.GeometryRenderer
+                ShapePath {
+                  fillColor: slideTab.active ? Util.alpha(root.selectedBorder, 0.28) : (slideTab.hovered ? Util.alpha(root.unselectedBorder, 0.2) : "transparent")
+                  strokeColor: slideTab.active ? root.selectedBorder : Util.alpha(root.unselectedBorder, 0.4)
+                  strokeWidth: slideTab.active ? 1.5 : 1
+                  startX: slideTab.skew; startY: 0
+                  PathLine { x: slideTab.width; y: 0 }
+                  PathLine { x: slideTab.width - slideTab.skew; y: slideTab.height }
+                  PathLine { x: 0; y: slideTab.height }
+                  PathLine { x: slideTab.skew; y: 0 }
+                }
+              }
+
+              Row {
+                anchors.centerIn: parent
+                spacing: 5
+                Text {
+                  text: "󰸉"
+                  font.family: "Symbols Nerd Font Mono"
+                  color: slideTab.active ? root.selectedBorder : root.foreground
+                  font.pixelSize: 11
+                  font.weight: Font.Bold
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+                Text {
+                  text: "Slideshow: " + (root.slideshowEnabled ? root.formatInterval(root.slideshowInterval) : "Off")
+                  color: slideTab.active ? root.selectedBorder : root.foreground
+                  font.pixelSize: 10
+                  font.weight: slideTab.active ? Font.Bold : Font.Normal
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              MouseArea {
+                id: slideTabMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.activeBottomTab = "slideshow"
+              }
+            }
+          }
+
+          // Left-aligned parameter buttons
           Row {
             id: buttonsRow
-            anchors.top: parent.top
-            anchors.topMargin: 12
-            x: Math.round(alignmentBar.originX + (alignmentBar.topWidth - width) / 2 - (alignmentBar.deckSkew * 0.35))
+            anchors.top: modeTabs.bottom
+            anchors.topMargin: 8
+            x: alignmentBar.originX + 12
             spacing: 8
 
             Repeater {
-              model: root.alignmentSteps
+              model: root.activeBottomTab === "alignment" ? root.alignmentSteps : root.intervalSteps
 
               delegate: Item {
                 id: btnItem
                 required property int index
                 required property var modelData
-                readonly property bool active: root.currentStepIndex === index
+                readonly property bool active: root.activeBottomTab === "alignment"
+                  ? (root.currentStepIndex === index)
+                  : (root.currentIntervalIndex === index)
                 readonly property bool hovered: mouseArea.containsMouse
 
-                width: 130
-                height: 34
+                width: root.activeBottomTab === "alignment" ? 134 : 110
+                height: 32
                 readonly property real btnSkew: 7
 
                 Shape {
@@ -834,19 +1072,28 @@ Item {
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
-                  onClicked: root.setStepIndex(index)
+                  onClicked: {
+                    if (root.activeBottomTab === "alignment") {
+                      root.setStepIndex(index)
+                    } else {
+                      root.setIntervalIndex(index)
+                    }
+                  }
                 }
               }
             }
           }
 
+          // Centered shortcut hint at bottom
           Text {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 8
             x: Math.round(alignmentBar.originX + (alignmentBar.topWidth - width) / 2 - alignmentBar.deckSkew)
-            text: "Use ↑ / ↓ to step position • Enter to apply"
+            text: root.activeBottomTab === "alignment"
+              ? "Use ↑ / ↓ to step position • Tab to switch to Slideshow • Enter to apply"
+              : "Use ↑ / ↓ to set interval • Tab to switch to Position • Enter to apply"
             color: root.foreground
-            opacity: 0.75
+            opacity: 0.65
             font.pixelSize: 11
             font.weight: Font.Medium
           }

@@ -61,4 +61,13 @@ assert(
     /showAlignment: alignable && !showLabels && !filterable/.test(imagePickerQml),
   'image picker provides stepped background alignment bar with persistence, hover feedback, and keyboard cycling'
 )
+assert(
+  imagePickerQml.includes('intervalSteps') &&
+    imagePickerQml.includes('cycleInterval(-1)') &&
+    imagePickerQml.includes('cycleInterval(1)') &&
+    imagePickerQml.includes('background-slideshow.json') &&
+    imagePickerQml.includes('id: modeTabs') &&
+    imagePickerQml.includes('activeBottomTab'),
+  'image picker provides dual-tab mode switcher with slideshow rotation interval configuration'
+)
 JS

@@ -32,4 +32,13 @@ assert(
     mediaQml.includes('-root.alignRatio * Math.max(0, width - parent.width)'),
   'desktop background, lock screen, and media renderer apply stepped horizontal alignment from saved configuration'
 )
+
+assert(
+  backgroundQml.includes('background-slideshow.json') &&
+    backgroundQml.includes('id: slideshowTimer') &&
+    backgroundQml.includes('id: slideshowNextProc') &&
+    backgroundQml.includes('omarchy-theme-bg-next') &&
+    backgroundQml.includes('function loadSlideshowConfig()'),
+  'desktop background watcher monitors slideshow config and triggers periodic rotation via omarchy-theme-bg-next'
+)
 JS

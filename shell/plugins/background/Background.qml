@@ -41,6 +41,37 @@ Item {
     onFileChanged: reload()
   }
 
+  readonly property string slideshowPath: home + "/.config/omarchy/background-slideshow.json"
+  property bool slideshowEnabled: false
+  property int slideshowInterval: 900
+
+  FileView {
+    id: slideshowFile
+    path: root.slideshowPath
+    watchChanges: true
+    printErrors: false
+    onLoaded: root.loadSlideshowConfig()
+    onLoadFailed: function(error) { root.slideshowEnabled = false }
+    onFileChanged: reload()
+  }
+
+  function loadSlideshowConfig() {
+    var raw = slideshowFile.text() || ""
+    if (!raw.trim()) {
+      slideshowEnabled = false
+      return
+    }
+    try {
+      var parsed = JSON.parse(raw)
+      slideshowEnabled = !!(parsed && parsed.enabled)
+      if (parsed && typeof parsed.interval === "number" && parsed.interval > 0) {
+        slideshowInterval = Math.max(10, parsed.interval)
+      }
+    } catch (e) {
+      slideshowEnabled = false
+    }
+  }
+
   function loadAlignments() {
     var raw = alignmentsFile.text() || ""
     if (!raw.trim()) {
@@ -246,8 +277,25 @@ Item {
     }
   }
 
+  Process {
+    id: slideshowNextProc
+    command: ["omarchy-theme-bg-next"]
+    onExited: root.refreshBackground()
+  }
+
+  Timer {
+    id: slideshowTimer
+    interval: Math.max(10, root.slideshowInterval) * 1000
+    repeat: true
+    running: root.slideshowEnabled && root.slideshowInterval > 0
+    onTriggered: {
+      if (!slideshowNextProc.running) slideshowNextProc.running = true
+    }
+  }
+
   Component.onCompleted: {
     loadAlignments()
+    loadSlideshowConfig()
     refreshBackground()
   }
 
